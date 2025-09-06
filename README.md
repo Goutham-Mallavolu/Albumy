@@ -4,7 +4,6 @@ This project extends [Albumy](https://github.com/greyli/albumy) with **ML-powere
 
 - **Semantic Search** – search photos using natural language, beyond keyword tags.  
 - **Find Similar** – retrieve visually/semantically related photos from any photo page.  
-- **Forge Picsum Seeder** – generate realistic demo data (users, avatars, tags, photos, comments).  
 - **Configurable Embedding Pipeline** – powered by [SentenceTransformers](https://www.sbert.net/) CLIP embeddings, with fallback logic.  
 - **Vector Index** – FAISS (if available) or NumPy cosine similarity.
 
