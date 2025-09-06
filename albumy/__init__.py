@@ -5,6 +5,8 @@
     :copyright: © 2018 Grey Li <withlihui@gmail.com>
     :license: MIT, see LICENSE for more details.
 """
+
+
 import os
 
 import click
@@ -105,6 +107,10 @@ def register_errorhandlers(app):
 
 
 def register_commands(app):
+    from albumy.semantic.embedding_service import EmbeddingService
+    from albumy.semantic.index_manager import IndexManager
+    from albumy.models import Photo, Embedding
+
     @app.cli.command()
     @click.option('--drop', is_flag=True, help='Create after drop.')
     def initdb(drop):
@@ -159,3 +165,59 @@ def register_commands(app):
         click.echo('Generating %d comments...' % comment)
         fake_comment(comment)
         click.echo('Done.')
+
+    @app.cli.command()
+    @click.option('--rebuild', is_flag=True, help='Rebuild vector index from DB embeddings.')
+    def index_embeddings(rebuild):
+        """Build or update the semantic vector index from stored embeddings."""
+        from albumy.extensions import db
+        es = EmbeddingService(model_name=app.config.get('SEMANTIC_MODEL_NAME', 'clip-ViT-B-32'))
+        dim = 512 if es._st_model is not None else 384
+        idx = IndexManager(dim=dim, index_path=app.config['SEMANTIC_INDEX_PATH'], mapping_path=app.config['SEMANTIC_MAPPING_PATH'])
+        # Fetch all embeddings
+        all_embs = Embedding.query.all()
+        import numpy as np
+        if rebuild:
+            vectors = []
+            ids = []
+            for e in all_embs:
+                v = Embedding.unpack(e.vector).astype('float32')
+                vectors.append(v)
+                ids.append(e.photo_id)
+            if vectors:
+                idx.rebuild(np.vstack(vectors).astype('float32'), np.array(ids, dtype='int64'))
+            else:
+                idx.rebuild(np.zeros((0, dim), dtype='float32'), np.array([], dtype='int64'))
+            idx.save()
+            click.echo(f'Rebuilt index with {idx.size} items.')
+        else:
+            # Incremental add for new ones not in index mapping
+            existing = set(idx._ids.tolist())
+            add_vecs = []
+            add_ids = []
+            for e in all_embs:
+                if e.photo_id not in existing:
+                    add_vecs.append(Embedding.unpack(e.vector).astype('float32'))
+                    add_ids.append(e.photo_id)
+            if add_vecs:
+                import numpy as np
+                idx.add(np.vstack(add_vecs).astype('float32'), np.array(add_ids, dtype='int64'))
+                idx.save()
+            click.echo(f'Indexed {len(add_ids)} new items; total {idx.size}.')
+
+    @app.cli.command()
+    def backfill_embeddings():
+        """Compute and store embeddings for photos lacking them."""
+        from albumy.extensions import db
+        es = EmbeddingService(model_name=app.config.get('SEMANTIC_MODEL_NAME', 'clip-ViT-B-32'))
+        dim = 512 if es._st_model is not None else 384
+        count = 0
+        for photo in Photo.query.all():
+            if getattr(photo, 'embedding', None) is None:
+                img_path = os.path.join(app.config['ALBUMY_UPLOAD_PATH'], photo.filename)
+                vec = es.encode_image(img_path)
+                emb = Embedding(photo=photo, dim=len(vec), vector=Embedding.pack(vec))
+                db.session.add(emb)
+                count += 1
+        db.session.commit()
+        click.echo(f'Backfilled embeddings for {count} photos.')

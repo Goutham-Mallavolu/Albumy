@@ -7,6 +7,7 @@
 """
 import os
 from datetime import datetime
+import numpy as np
 
 from flask import current_app
 from flask_avatars import Identicon
@@ -293,3 +294,32 @@ def delete_photos(**kwargs):
         path = os.path.join(current_app.config['ALBUMY_UPLOAD_PATH'], filename)
         if os.path.exists(path):  # not every filename map a unique file
             os.remove(path)
+
+
+
+class Embedding(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    photo_id = db.Column(db.Integer, db.ForeignKey('photo.id'), unique=True, index=True)
+    dim = db.Column(db.Integer, default=512)
+    vector = db.Column(db.LargeBinary)  # raw float32 bytes
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    photo = db.relationship('Photo', backref=db.backref('embedding', uselist=False))
+
+    @staticmethod
+    def pack(vec: np.ndarray) -> bytes:
+        return vec.astype('float32').tobytes()
+
+    @staticmethod
+    def unpack(blob: bytes) -> np.ndarray:
+        return np.frombuffer(blob, dtype='float32')
+
+class Telemetry(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    event_type = db.Column(db.String(64), index=True)
+    photo_id = db.Column(db.Integer, db.ForeignKey('photo.id'), nullable=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    photo = db.relationship('Photo', backref='telemetry')
+    user = db.relationship('User')

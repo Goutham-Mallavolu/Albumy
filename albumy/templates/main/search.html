@@ -1,4 +1,6 @@
 {% extends 'base.html' %}
+{% set mode = request.args.get('mode', mode|default('keyword')) %}
+{% set is_sem = (mode == 'semantic') %}
 {% from 'bootstrap/pagination.html' import render_pagination %}
 {% from 'macros.html' import photo_card, user_card with context %}
 
@@ -11,12 +13,18 @@
     <div class="row">
         <div class="col-md-3">
             <div class="nav nav-pills flex-column" role="tablist" aria-orientation="vertical">
-                <a class="nav-item nav-link {% if category == 'photo' %}active{% endif %}"
-                   href="{{ url_for('.search', q=q, category='photo') }}">Photo</a>
-                <a class="nav-item nav-link {% if category == 'user' %}active{% endif %}"
-                   href="{{ url_for('.search', q=q, category='user') }}">User</a>
-                <a class="nav-item nav-link {% if category == 'tag' %}active{% endif %}"
-                   href="{{ url_for('.search', q=q, category='tag') }}">Tag</a>
+                <a class="nav-item nav-link {% if category == 'photo' and not is_sem %}active{% endif %}"
+   href="{{ url_for('.search', q=q, category='photo', mode='keyword') }}">Photo</a>
+
+<a class="nav-item nav-link {% if is_sem %}active{% endif %}"
+   href="{{ url_for('.search', q=q, category='photo', mode='semantic') }}">Semantic</a>
+
+<a class="nav-item nav-link {% if category == 'user' and not is_sem %}active{% endif %}"
+   href="{{ url_for('.search', q=q, category='user', mode='keyword') }}">User</a>
+
+<a class="nav-item nav-link {% if category == 'tag' and not is_sem %}active{% endif %}"
+   href="{{ url_for('.search', q=q, category='tag', mode='keyword') }}">Tag</a>
+
             </div>
         </div>
         <div class="col-md-9">
@@ -24,7 +32,9 @@
                 <h5>{{ results|length }} results</h5>
                 {% for item in results %}
                     {% if category == 'photo' %}
-                        {{ photo_card(item) }}
+                        {% if item.match_badge %}<span class="badge badge-info">{{ item.match_badge }}</span>
+<span class="badge badge-light">{{ '%.3f'|format(item.match_score) }}</span>{% endif %}
+{{ photo_card(item) }}
                     {% elif category == 'user' %}
                         {{ user_card(item) }}
                     {% else %}
@@ -39,9 +49,9 @@
             {% endif %}
         </div>
     </div>
-    {% if results %}
-        <div class="page-footer">
-            {{ render_pagination(pagination, align='right') }}
-        </div>
-    {% endif %}
+    {% if pagination %}
+  <div class="page-footer">
+    {{ render_pagination(pagination, align='right') }}
+  </div>
+{% endif %}
 {% endblock %}

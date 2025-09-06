@@ -13,6 +13,7 @@
                 </a>
             </div>
             <a class="btn btn-primary btn-sm text-white" data-toggle="modal" data-target="#share-modal">Share</a>
+<a class="btn btn-info btn-sm text-white" href="{{ url_for('.find_similar', photo_id=photo.id) }}">Find similar</a>
             {% if current_user == photo.author or current_user.can('MODERATE') %}
                 <a class="btn btn-danger btn-sm text-white" data-toggle="modal" data-target="#confirm-delete"
                    data-href="{{ url_for('.delete_photo', photo_id=photo.id) }}">Delete</a>
@@ -29,7 +30,20 @@
             {% include 'main/_comment.html' %}
         </div>
         <div class="col-md-4">
-            {% include 'main/_photo_sidebar.html' %}
+            {% if similar_photos %}
+  <h5 class="mt-3">Similar Photos</h5>
+  <div class="row">
+    {% for sp in similar_photos %}
+      <div class="col-6 mb-2">
+        <a href="{{ url_for('main.show_photo', photo_id=sp.id) }}">
+          <img class="img-fluid" src="{{ url_for('main.get_image', filename=sp.filename_s) }}">
+        </a>
+        {% if sp.match_score %}<span class="badge badge-light">{{ '%.3f'|format(sp.match_score) }}</span>{% endif %}
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+{% include 'main/_photo_sidebar.html' %}
         </div>
     </div>
     <!-- share modal -->

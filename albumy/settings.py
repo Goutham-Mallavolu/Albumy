@@ -68,11 +68,21 @@ class BaseConfig:
 
     WHOOSHEE_MIN_STRING_LEN = 1
 
+    # # === Semantic Search defaults ===
+    # SEMANTIC_MODEL_NAME = 'clip-ViT-B-32'
+    # SEMANTIC_INDEX_PATH = os.path.join(basedir, 'data', 'semantic.index')
+    # SEMANTIC_MAPPING_PATH = os.path.join(basedir, 'data', 'semantic.ids.npy')
+    # SEMANTIC_TOPK = 12
+
 
 class DevelopmentConfig(BaseConfig):
     SQLALCHEMY_DATABASE_URI = \
         prefix + os.path.join(basedir, 'data-dev.db')
     REDIS_URL = "redis://localhost"
+    SEMANTIC_MODEL_NAME = 'clip-ViT-B-32'
+    SEMANTIC_INDEX_PATH = os.path.join(basedir, 'data', 'semantic.index')
+    SEMANTIC_MAPPING_PATH = os.path.join(basedir, 'data', 'semantic.ids.npy')
+    SEMANTIC_TOPK = 12
 
 
 class TestingConfig(BaseConfig):
@@ -91,3 +101,10 @@ config = {
     'testing': TestingConfig,
     'production': ProductionConfig,
 }
+
+
+# Semantic search defaults
+SEMANTIC_MODEL_NAME = 'clip-ViT-B-32'
+SEMANTIC_INDEX_PATH = os.path.join(basedir, 'data', 'semantic.index')
+SEMANTIC_MAPPING_PATH = os.path.join(basedir, 'data', 'semantic.ids.npy')
+SEMANTIC_TOPK = 12

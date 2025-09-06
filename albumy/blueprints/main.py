@@ -14,6 +14,9 @@ from sqlalchemy.sql.expression import func
 
 from albumy.decorators import confirm_required, permission_required
 from albumy.extensions import db
+from albumy.semantic.embedding_service import EmbeddingService
+from albumy.semantic.index_manager import IndexManager
+from albumy.models import Embedding, Telemetry
 from albumy.forms.main import DescriptionForm, TagForm, CommentForm
 from albumy.models import User, Photo, Tag, Follow, Collect, Comment, Notification
 from albumy.notifications import push_comment_notification, push_collect_notification
@@ -31,7 +34,7 @@ def index():
             .join(Follow, Follow.followed_id == Photo.author_id) \
             .filter(Follow.follower_id == current_user.id) \
             .order_by(Photo.timestamp.desc()) \
-            .paginate(page, per_page)
+            .paginate(page=page, per_page=per_page, error_out=False)
         photos = pagination.items
     else:
         pagination = None
@@ -49,21 +52,84 @@ def explore():
 @main_bp.route('/search')
 def search():
     q = request.args.get('q', '').strip()
-    if q == '':
+    mode = request.args.get('mode', 'keyword')
+    topk = current_app.config.get('SEMANTIC_TOPK', 12)
+
+    if not q:
         flash('Enter keyword about photo, user or tag.', 'warning')
         return redirect_back()
+
+    if mode == 'semantic':
+        es = EmbeddingService(model_name=current_app.config.get('SEMANTIC_MODEL_NAME', 'clip-ViT-B-32'))
+        dim = 512 if es._st_model is not None else 384
+
+        index_path = current_app.config.get('SEMANTIC_INDEX_PATH', os.path.join(current_app.root_path, '..', 'data', 'semantic.index'))
+        mapping_path = current_app.config.get('SEMANTIC_MAPPING_PATH', os.path.join(current_app.root_path, '..', 'data', 'semantic.ids.npy'))
+
+        idx = IndexManager(dim=dim, index_path=index_path, mapping_path=mapping_path)
+        qvec = es.encode_text(q)
+        hits = idx.query(qvec, topk=topk)
+        photo_ids = [pid for pid, _ in hits]
+
+        from sqlalchemy.sql import case
+        # if photo_ids:
+        #     order_map = {pid: i for i, pid in enumerate(photo_ids)}
+        #     results = (Photo.query.filter(Photo.id.in_(photo_ids))
+        #                .order_by(case(value=Photo.id, whens=order_map)).all())
+        #     score_map = dict(hits)
+        #     for p in results:
+        #         p.match_badge = 'semantic match'
+        #         p.match_score = score_map.get(p.id)
+        # else:
+        #     results = []
+        if photo_ids:
+            order_map = {pid: i for i, pid in enumerate(photo_ids)}
+            order_case = case(order_map, value=Photo.id, else_=len(photo_ids))
+
+            results = (Photo.query
+                       .filter(Photo.id.in_(photo_ids))
+                       .order_by(order_case)
+                       .all())
+
+            score_map = dict(hits)
+            for p in results:
+                p.match_badge = 'semantic match'
+                p.match_score = score_map.get(p.id)
+        else:
+            results = []
+
+        current_app.logger.info(f"[semantic] q='{q}' topk={topk} idx_size={idx.size}")
+        return render_template('main/search.html', q=q, results=results, pagination=None, category='photo', mode='semantic')
 
     category = request.args.get('category', 'photo')
     page = request.args.get('page', 1, type=int)
     per_page = current_app.config['ALBUMY_SEARCH_RESULT_PER_PAGE']
+
     if category == 'user':
-        pagination = User.query.whooshee_search(q).paginate(page, per_page)
+        pagination = User.query.whooshee_search(q).paginate(page=page, per_page=per_page, error_out=False)
     elif category == 'tag':
-        pagination = Tag.query.whooshee_search(q).paginate(page, per_page)
+        pagination = Tag.query.whooshee_search(q).paginate(page=page, per_page=per_page, error_out=False)
     else:
-        pagination = Photo.query.whooshee_search(q).paginate(page, per_page)
+        pagination = Photo.query.whooshee_search(q).paginate(page=page, per_page=per_page, error_out=False)
+
     results = pagination.items
-    return render_template('main/search.html', q=q, results=results, pagination=pagination, category=category)
+    return render_template('main/search.html', q=q, results=results, pagination=pagination, category=category, mode='keyword')# --- Keyword (Whooshee) path ---
+    category = request.args.get('category', 'photo')
+    page = request.args.get('page', 1, type=int)
+    per_page = current_app.config['ALBUMY_SEARCH_RESULT_PER_PAGE']
+
+    if category == 'user':
+        pagination = User.query.whooshee_search(q).paginate(page=page, per_page=per_page, error_out=False)
+    elif category == 'tag':
+        pagination = Tag.query.whooshee_search(q).paginate(page=page, per_page=per_page, error_out=False)
+    else:
+        pagination = Photo.query.whooshee_search(q).paginate(page=page, per_page=per_page, error_out=False)
+
+    results = pagination.items
+    # ✅ explicitly set keyword mode so tabs aren’t both active
+    return render_template('main/search.html',
+                           q=q, results=results, pagination=pagination,
+                           category=category, mode='keyword')
 
 
 @main_bp.route('/notifications')
@@ -76,7 +142,7 @@ def show_notifications():
     if filter_rule == 'unread':
         notifications = notifications.filter_by(is_read=False)
 
-    pagination = notifications.order_by(Notification.timestamp.desc()).paginate(page, per_page)
+    pagination = notifications.order_by(Notification.timestamp.desc()).paginate(page=page, per_page=per_page, error_out=False)
     notifications = pagination.items
     return render_template('main/notifications.html', pagination=pagination, notifications=notifications)
 
@@ -141,7 +207,7 @@ def show_photo(photo_id):
     photo = Photo.query.get_or_404(photo_id)
     page = request.args.get('page', 1, type=int)
     per_page = current_app.config['ALBUMY_COMMENT_PER_PAGE']
-    pagination = Comment.query.with_parent(photo).order_by(Comment.timestamp.asc()).paginate(page, per_page)
+    pagination = Comment.query.with_parent(photo).order_by(Comment.timestamp.asc()).paginate(page=page, per_page=per_page, error_out=False)
     comments = pagination.items
 
     comment_form = CommentForm()
@@ -233,7 +299,7 @@ def show_collectors(photo_id):
     photo = Photo.query.get_or_404(photo_id)
     page = request.args.get('page', 1, type=int)
     per_page = current_app.config['ALBUMY_USER_PER_PAGE']
-    pagination = Collect.query.with_parent(photo).order_by(Collect.timestamp.asc()).paginate(page, per_page)
+    pagination = Collect.query.with_parent(photo).order_by(Collect.timestamp.asc()).paginate(page=page, per_page=per_page, error_out=False)
     collects = pagination.items
     return render_template('main/collectors.html', collects=collects, photo=photo, pagination=pagination)
 
@@ -374,7 +440,7 @@ def show_tag(tag_id, order):
     page = request.args.get('page', 1, type=int)
     per_page = current_app.config['ALBUMY_PHOTO_PER_PAGE']
     order_rule = 'time'
-    pagination = Photo.query.with_parent(tag).order_by(Photo.timestamp.desc()).paginate(page, per_page)
+    pagination = Photo.query.with_parent(tag).order_by(Photo.timestamp.desc()).paginate(page=page, per_page=per_page, error_out=False)
     photos = pagination.items
 
     if order == 'by_collects':
@@ -399,3 +465,44 @@ def delete_tag(photo_id, tag_id):
 
     flash('Tag deleted.', 'info')
     return redirect(url_for('.show_photo', photo_id=photo_id))
+
+
+@main_bp.route('/photo/<int:photo_id>/similar')
+def find_similar(photo_id):
+    photo = Photo.query.get_or_404(photo_id)
+    # Telemetry: log click
+    event = Telemetry(event_type='find_similar_click', photo=photo, user=current_user if current_user.is_authenticated else None)
+    db.session.add(event)
+    db.session.commit()
+    # Query similar
+    es = EmbeddingService(model_name=current_app.config.get('SEMANTIC_MODEL_NAME', 'clip-ViT-B-32'))
+    dim = 512 if es._st_model is not None else 384
+    idx = IndexManager(dim=dim, index_path=current_app.config.get('SEMANTIC_INDEX_PATH', os.path.join(current_app.root_path, '..', 'data', 'semantic.index')), mapping_path=current_app.config.get('SEMANTIC_MAPPING_PATH', os.path.join(current_app.root_path, '..', 'data', 'semantic.ids.npy')))
+    emb = getattr(photo, 'embedding', None)
+    if emb is None:
+        # compute on the fly
+        img_path = os.path.join(current_app.config['ALBUMY_UPLOAD_PATH'], photo.filename)
+        vec = es.encode_image(img_path)
+    else:
+        vec = Embedding.unpack(emb.vector)
+    hits = idx.query(vec, topk=current_app.config.get('SEMANTIC_TOPK', 12)+1)
+    # Drop self if present
+    similar_ids = [pid for pid, score in hits if pid != photo.id][:current_app.config.get('SEMANTIC_TOPK', 12)]
+    sim_photos = Photo.query.filter(Photo.id.in_(similar_ids)).all() if similar_ids else []
+    # Annotate
+    score_map = dict(hits)
+    for p in sim_photos:
+        p.match_badge = 'similar'
+        p.match_score = score_map.get(p.id)
+
+    page = request.args.get('page', 1, type=int)
+    per_page = current_app.config['ALBUMY_COMMENT_PER_PAGE']
+    pagination = Comment.query.with_parent(photo).order_by(Comment.timestamp.asc()).paginate(page=page, per_page=per_page, error_out=False)
+    comments = pagination.items
+    comment_form = CommentForm()
+    description_form = DescriptionForm()
+    tag_form = TagForm()
+    description_form.description.data = photo.description
+    return render_template('main/photo.html', photo=photo, pagination=pagination, comments=comments,
+                           comment_form=comment_form, description_form=description_form, tag_form=tag_form,
+                           similar_photos=sim_photos)

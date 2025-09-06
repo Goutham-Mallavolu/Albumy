@@ -147,7 +147,7 @@ def manage_user():
     else:
         filtered_users = User.query
 
-    pagination = filtered_users.order_by(User.member_since.desc()).paginate(page, per_page)
+    pagination = filtered_users.order_by(User.member_since.desc()).paginate(page=page, per_page=per_page, error_out=False)
     users = pagination.items
     return render_template('admin/manage_user.html', pagination=pagination, users=users)
 
@@ -161,10 +161,10 @@ def manage_photo(order):
     per_page = current_app.config['ALBUMY_MANAGE_PHOTO_PER_PAGE']
     order_rule = 'flag'
     if order == 'by_time':
-        pagination = Photo.query.order_by(Photo.timestamp.desc()).paginate(page, per_page)
+        pagination = Photo.query.order_by(Photo.timestamp.desc()).paginate(page=page, per_page=per_page, error_out=False)
         order_rule = 'time'
     else:
-        pagination = Photo.query.order_by(Photo.flag.desc()).paginate(page, per_page)
+        pagination = Photo.query.order_by(Photo.flag.desc()).paginate(page=page, per_page=per_page, error_out=False)
     photos = pagination.items
     return render_template('admin/manage_photo.html', pagination=pagination, photos=photos, order_rule=order_rule)
 
@@ -175,7 +175,7 @@ def manage_photo(order):
 def manage_tag():
     page = request.args.get('page', 1, type=int)
     per_page = current_app.config['ALBUMY_MANAGE_TAG_PER_PAGE']
-    pagination = Tag.query.order_by(Tag.id.desc()).paginate(page, per_page)
+    pagination = Tag.query.order_by(Tag.id.desc()).paginate(page=page, per_page=per_page, error_out=False)
     tags = pagination.items
     return render_template('admin/manage_tag.html', pagination=pagination, tags=tags)
 
@@ -189,9 +189,9 @@ def manage_comment(order):
     per_page = current_app.config['ALBUMY_MANAGE_COMMENT_PER_PAGE']
     order_rule = 'flag'
     if order == 'by_time':
-        pagination = Comment.query.order_by(Comment.timestamp.desc()).paginate(page, per_page)
+        pagination = Comment.query.order_by(Comment.timestamp.desc()).paginate(page=page, per_page=per_page, error_out=False)
         order_rule = 'time'
     else:
-        pagination = Comment.query.order_by(Comment.flag.desc()).paginate(page, per_page)
+        pagination = Comment.query.order_by(Comment.flag.desc()).paginate(page=page, per_page=per_page, error_out=False)
     comments = pagination.items
     return render_template('admin/manage_comment.html', pagination=pagination, comments=comments, order_rule=order_rule)
